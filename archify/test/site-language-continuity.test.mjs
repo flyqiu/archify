@@ -14,7 +14,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
 const runtimePath = path.join(repoRoot, 'docs/assets/site-language.js');
 const navigationPath = path.join(repoRoot, 'docs/assets/site-navigation.css');
-const chromePath = process.env.ARCHIFY_CHROME ? findChrome() : null;
+const integrationEnabled = process.env.ARCHIFY_SITE_INTEGRATION === '1';
+const chromePath = integrationEnabled && process.env.ARCHIFY_CHROME ? findChrome() : null;
 
 function loadRuntime({
   url = 'https://example.test/',
@@ -146,7 +147,9 @@ test('site language runtime normalizes one entry parameter into one durable pref
   assert.doesNotMatch(source, /legacy|navigator\.language|detectBrowserLanguage|select\s*:/);
 });
 
-test('custom site builders emit every shared site asset and preserve entry, navigation, selection, and refresh state', () => {
+test('custom site builders emit every shared site asset and preserve entry, navigation, selection, and refresh state', {
+  skip: integrationEnabled ? false : 'Run through the serialized site integration gate.',
+}, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-site-language-'));
   try {
     const builds = [
