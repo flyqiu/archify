@@ -19,4 +19,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: xpzouying/star-history@8b1f26dc5e9a17caa75da9351b688509ef312811 # v1
         with:
-          branch: star-history
+          commit: 'false'
+      - name: Publish charts with linear history
+        run: bash scripts/publish-star-history.sh star-history
