@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +15,17 @@ const receiptPath = path.join(repoRoot, 'docs', 'assets', 'archify-live-proof.js
 
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function git(cwd, ...args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
+
+function writeStarHistoryCharts(cwd, version) {
+  const assets = path.join(cwd, 'assets');
+  fs.mkdirSync(assets, { recursive: true });
+  fs.writeFileSync(path.join(assets, 'star-history.svg'), `<svg><title>light ${version}</title></svg>\n`);
+  fs.writeFileSync(path.join(assets, 'star-history-dark.svg'), `<svg><title>dark ${version}</title></svg>\n`);
 }
 
 function skipSubBlocks(buffer, start) {
@@ -216,5 +229,63 @@ test('all README languages end with the self-hosted star history chart', () => {
 
   assert.match(workflow, /permissions:\n  contents: write/);
   assert.match(workflow, /xpzouying\/star-history@[0-9a-f]{40}/);
-  assert.match(workflow, /branch: star-history/);
+  assert.match(workflow, /commit: ['"]false['"]/);
+  assert.match(workflow, /bash scripts\/publish-star-history\.sh star-history/);
+  assert.doesNotMatch(workflow, /branch: star-history/);
+});
+
+test('Star History publishing advances the data branch without a force push', () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-star-history-'));
+  const remote = path.join(fixture, 'remote.git');
+  const firstCheckout = path.join(fixture, 'first');
+  const secondCheckout = path.join(fixture, 'second');
+  const publisher = path.join(repoRoot, 'scripts', 'publish-star-history.sh');
+
+  try {
+    git(fixture, 'init', '--bare', remote);
+    git(fixture, '--git-dir', remote, 'config', 'receive.denyNonFastForwards', 'true');
+    git(fixture, '--git-dir', remote, 'config', 'receive.denyDeletes', 'true');
+
+    fs.mkdirSync(firstCheckout);
+    git(firstCheckout, 'init', '-b', 'main');
+    git(firstCheckout, 'config', 'user.name', 'Fixture');
+    git(firstCheckout, 'config', 'user.email', 'fixture@example.com');
+    fs.writeFileSync(path.join(firstCheckout, 'README.md'), 'fixture\n');
+    git(firstCheckout, 'add', 'README.md');
+    git(firstCheckout, 'commit', '-m', 'seed');
+    git(firstCheckout, 'remote', 'add', 'origin', remote);
+    git(firstCheckout, 'push', '-u', 'origin', 'main');
+
+    const firstTemp = path.join(fixture, 'run-1');
+    fs.mkdirSync(firstTemp);
+    writeStarHistoryCharts(firstCheckout, 'v1');
+    execFileSync('bash', [publisher, 'star-history'], {
+      cwd: firstCheckout,
+      env: { ...process.env, RUNNER_TEMP: firstTemp },
+    });
+    const firstCommit = git(fixture, '--git-dir', remote, 'rev-parse', 'refs/heads/star-history');
+
+    git(fixture, 'clone', '--branch', 'main', remote, secondCheckout);
+    const secondTemp = path.join(fixture, 'run-2');
+    fs.mkdirSync(secondTemp);
+    writeStarHistoryCharts(secondCheckout, 'v2');
+    execFileSync('bash', [publisher, 'star-history'], {
+      cwd: secondCheckout,
+      env: { ...process.env, RUNNER_TEMP: secondTemp },
+    });
+    const secondCommit = git(fixture, '--git-dir', remote, 'rev-parse', 'refs/heads/star-history');
+
+    assert.notEqual(secondCommit, firstCommit);
+    git(fixture, '--git-dir', remote, 'merge-base', '--is-ancestor', firstCommit, secondCommit);
+    assert.deepEqual(
+      git(fixture, '--git-dir', remote, 'ls-tree', '-r', '--name-only', secondCommit).split('\n'),
+      ['assets/star-history-dark.svg', 'assets/star-history.svg'],
+    );
+    assert.match(
+      git(fixture, '--git-dir', remote, 'show', `${secondCommit}:assets/star-history.svg`),
+      /light v2/,
+    );
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
 });
