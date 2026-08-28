@@ -2,6 +2,10 @@
   'use strict';
 
   var STORAGE_KEY = 'archify-lang';
+  var LEGACY_STORAGE_KEYS = Object.freeze([
+    'archify-gallery-language',
+    'archify-guide-language',
+  ]);
 
   function normalize(value) {
     return value === 'zh' || value === 'en' ? value : null;
@@ -16,16 +20,20 @@
   }
 
   function consumeRequestedLanguage() {
+    var url;
     try {
-      var url = new URL(global.location.href);
-      if (!url.searchParams.has('lang')) return null;
-      var requested = normalize(url.searchParams.get('lang'));
-      url.searchParams.delete('lang');
-      global.history.replaceState(null, '', url.pathname + url.search + url.hash);
-      return requested;
+      url = new URL(global.location.href);
     } catch (_) {
       return null;
     }
+    if (!url.searchParams.has('lang')) return null;
+
+    var requested = normalize(url.searchParams.get('lang'));
+    url.searchParams.delete('lang');
+    try {
+      global.history.replaceState(global.history.state, '', url.pathname + url.search + url.hash);
+    } catch (_) {}
+    return requested;
   }
 
   function read() {
@@ -34,6 +42,11 @@
 
     var stored = readStored(STORAGE_KEY);
     if (stored) return stored;
+
+    for (var index = 0; index < LEGACY_STORAGE_KEYS.length; index += 1) {
+      var legacy = readStored(LEGACY_STORAGE_KEYS[index]);
+      if (legacy) return write(legacy);
+    }
     return 'en';
   }
 

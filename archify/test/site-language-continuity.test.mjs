@@ -21,6 +21,7 @@ function loadRuntime({
   url = 'https://example.test/',
   values = new Map(),
   storageError = false,
+  historyError = false,
   source = runtimePath,
 } = {}) {
   const localStorage = {
@@ -46,6 +47,7 @@ function loadRuntime({
     location,
     history: {
       replaceState(_state, _title, next) {
+        if (historyError) throw new Error('history unavailable');
         currentUrl = new URL(next, currentUrl);
         syncLocation();
       },
@@ -115,6 +117,42 @@ test('site language runtime normalizes one entry parameter into one durable pref
   const canonical = loadRuntime({ values: new Map([['archify-lang', 'zh']]) });
   assert.equal(canonical.language.read(), 'zh');
 
+  for (const legacyKey of ['archify-gallery-language', 'archify-guide-language']) {
+    const legacy = loadRuntime({ values: new Map([[legacyKey, 'zh']]) });
+    assert.equal(legacy.language.read(), 'zh', `${legacyKey} must remain readable during migration`);
+    assert.equal(legacy.values.get('archify-lang'), 'zh', `${legacyKey} must migrate to the canonical key`);
+  }
+
+  const canonicalWins = loadRuntime({
+    values: new Map([
+      ['archify-lang', 'en'],
+      ['archify-gallery-language', 'zh'],
+      ['archify-guide-language', 'zh'],
+    ]),
+  });
+  assert.equal(canonicalWins.language.read(), 'en');
+
+  const secondLegacyFallback = loadRuntime({
+    values: new Map([
+      ['archify-gallery-language', 'fr'],
+      ['archify-guide-language', 'zh'],
+    ]),
+  });
+  assert.equal(secondLegacyFallback.language.read(), 'zh');
+  assert.equal(secondLegacyFallback.values.get('archify-lang'), 'zh');
+
+  const conflictingLegacy = loadRuntime({
+    values: new Map([
+      ['archify-gallery-language', 'zh'],
+      ['archify-guide-language', 'en'],
+    ]),
+  });
+  assert.equal(conflictingLegacy.language.read(), 'zh');
+  assert.equal(conflictingLegacy.values.get('archify-lang'), 'zh');
+  conflictingLegacy.values.set('archify-gallery-language', 'en');
+  const migrated = loadRuntime({ values: conflictingLegacy.values });
+  assert.equal(migrated.language.read(), 'zh', 'the canonical migration must win on later page loads');
+
   const explicit = loadRuntime({
     url: 'https://example.test/guide.html?lang=en&type=workflow#chooser',
     values: new Map([['archify-lang', 'zh']]),
@@ -124,6 +162,15 @@ test('site language runtime normalizes one entry parameter into one durable pref
   assert.equal(explicit.url().searchParams.has('lang'), false);
   assert.equal(explicit.url().searchParams.get('type'), 'workflow');
   assert.equal(explicit.url().hash, '#chooser');
+
+  const historyBlocked = loadRuntime({
+    url: 'https://example.test/guide.html?lang=zh&type=workflow#chooser',
+    values: new Map([['archify-lang', 'en']]),
+    historyError: true,
+  });
+  assert.equal(historyBlocked.language.read(), 'zh');
+  assert.equal(historyBlocked.values.get('archify-lang'), 'zh');
+  assert.equal(historyBlocked.url().searchParams.get('lang'), 'zh');
 
   assert.equal(explicit.language.write('zh'), 'zh');
   const refreshed = loadRuntime({ url: explicit.url().href, values: explicit.values });
@@ -144,7 +191,9 @@ test('site language runtime normalizes one entry parameter into one durable pref
   assert.equal(blocked.language.write('zh'), 'zh');
 
   const source = fs.readFileSync(runtimePath, 'utf8');
-  assert.doesNotMatch(source, /legacy|navigator\.language|detectBrowserLanguage|select\s*:/);
+  assert.match(source, /archify-gallery-language/);
+  assert.match(source, /archify-guide-language/);
+  assert.doesNotMatch(source, /navigator\.language|detectBrowserLanguage|select\s*:/);
 });
 
 test('custom site builders emit every shared site asset and preserve entry, navigation, selection, and refresh state', {
@@ -272,6 +321,15 @@ test('real Chrome preserves language through entry, navigation, selection, refre
     }, sessionId);
 
     await navigate(browser, sessionId, `${baseUrl}/index.html`);
+    await evaluate(browser, sessionId, 'localStorage.clear()');
+
+    await evaluate(browser, sessionId, "localStorage.setItem('archify-guide-language', 'zh')");
+    await navigate(browser, sessionId, `${baseUrl}/index.html`);
+    assert.deepEqual(await evaluate(browser, sessionId, `({
+      language: document.documentElement.lang,
+      stored: localStorage.getItem('archify-lang')
+    })`), { language: 'zh-CN', stored: 'zh' });
+
     await evaluate(browser, sessionId, 'localStorage.clear()');
     await navigate(browser, sessionId, `${baseUrl}/index.html?lang=zh&utm_source=browser-test#proof`);
 
