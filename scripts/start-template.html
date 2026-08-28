@@ -269,6 +269,7 @@
   </main>
 
   <script id="start-data" type="application/json">[[START_JSON]]</script>
+  <script src="assets/site-language.js"></script>
   <script>
     (function () {
       'use strict';
@@ -281,14 +282,11 @@
       var params = new URLSearchParams(window.location.search);
       var requestedType = params.get('type');
       var requestedAgent = params.get('agent');
-      var requestedLanguage = params.get('lang');
       var requestedSource = params.get('source');
       var type = KNOWN_TYPES.has(requestedType) ? requestedType : 'architecture';
       var agent = KNOWN_AGENTS.has(requestedAgent) ? requestedAgent : 'codex';
       var source = KNOWN_SOURCES.has(requestedSource) ? requestedSource : 'direct';
-      var language = requestedLanguage === 'zh' || requestedLanguage === 'en'
-        ? requestedLanguage
-        : ((navigator.languages && navigator.languages[0]) || navigator.language || 'en').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+      var language = ArchifySiteLanguage.read({ detectBrowserLanguage: true });
 
       var title = document.getElementById('recipe-title');
       var question = document.getElementById('recipe-question');
@@ -352,6 +350,7 @@
       };
 
       function render() {
+        language = ArchifySiteLanguage.write(language);
         var recipe = DATA[type];
         var copy = recipe[language];
         updateStaticCopy();

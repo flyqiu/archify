@@ -253,13 +253,14 @@
   <footer><div class="shell"><span data-i18n="footerLeft">Generated from the same recipe source as the Archify CLI.</span><span>archify guide "your scenario"</span><span data-i18n="versionLabel">Scenario guide / development / v[[ARCHIFY_VERSION]]</span></div></footer>
 
   <script id="guide-data" type="application/json">[[GUIDE_JSON]]</script>
+  <script src="assets/site-language.js"></script>
   <script>
     (function () {
       'use strict';
       var recipes = JSON.parse(document.getElementById('guide-data').textContent);
       var types = ['architecture','workflow','sequence','dataflow','lifecycle'];
       var colors = { architecture:'#0891b2', workflow:'#047857', sequence:'#6d28d9', dataflow:'#b45309', lifecycle:'#be123c' };
-      var language = localStorage.getItem('archify-guide-language') === 'zh' ? 'zh' : 'en';
+      var language = ArchifySiteLanguage.read({ legacyKeys: ['archify-guide-language'] });
       var activeType = 'all';
       var lastRecipe = null;
       var copy = {
@@ -325,8 +326,7 @@
         renderResult(picked.recipe,picked.confidence,picked.alternatives);
       }
       function applyLanguage(next) {
-        language = next === 'zh' ? 'zh' : 'en';
-        localStorage.setItem('archify-guide-language',language);
+        language = ArchifySiteLanguage.write(next);
         document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
         document.getElementById('language').textContent = language === 'zh' ? 'EN' : '中文';
         document.querySelectorAll('[data-i18n]').forEach(function (node) { node.textContent=t(node.dataset.i18n); });

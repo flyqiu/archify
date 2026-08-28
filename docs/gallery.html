@@ -1763,18 +1763,18 @@ receipt 99 checks / 11 artifacts / deterministic hashes</pre>
     }
   ]
 }</script>
+  <script src="assets/site-language.js"></script>
   <script>
     (function () {
       var cards = Array.prototype.slice.call(document.querySelectorAll('.showcase-card'));
       var filterButtons = Array.prototype.slice.call(document.querySelectorAll('[data-filter]'));
       var empty = document.getElementById('empty-state');
       var previewTheme = 'dark';
-      var language = localStorage.getItem('archify-gallery-language') || 'en';
+      var language = ArchifySiteLanguage.read({ legacyKeys: ['archify-gallery-language'] });
 
       function applyLanguage(next) {
-        language = next === 'zh' ? 'zh' : 'en';
+        language = ArchifySiteLanguage.write(next);
         document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
-        localStorage.setItem('archify-gallery-language', language);
         document.querySelectorAll('[data-en][data-zh]').forEach(function (node) {
           node.innerHTML = node.getAttribute(language === 'zh' ? 'data-zh' : 'data-en');
         });

@@ -847,6 +847,7 @@
     </div>
   </footer>
 
+  <script src="assets/site-language.js"></script>
   <script>
   /* ══════════════════════════════════════
      i18n strings
@@ -1001,7 +1002,7 @@
     }
   };
 
-  let lang = localStorage.getItem('archify-lang') || 'en';
+  let lang = ArchifySiteLanguage.read();
   let activeProof = 'signal';
   const btnLang = document.getElementById('btn-lang');
   const proofStage = document.getElementById('hero-proof-stage');
@@ -1069,19 +1070,18 @@
   });
 
   function applyLang(l) {
-    lang = l;
-    localStorage.setItem('archify-lang', l);
-    document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
-    btnLang.textContent = l === 'zh' ? 'EN' : '中文';
-    const dict = LANGS[l];
+    lang = ArchifySiteLanguage.write(l);
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    btnLang.textContent = lang === 'zh' ? 'EN' : '中文';
+    const dict = LANGS[lang];
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const v = dict[el.dataset.i18n];
       if (v !== undefined) el.innerHTML = v;
     });
     fillRail();
     renderProof(activeProof);
-    document.getElementById('code-en').style.display = l === 'en' ? '' : 'none';
-    document.getElementById('code-zh').style.display = l === 'zh' ? '' : 'none';
+    document.getElementById('code-en').style.display = lang === 'en' ? '' : 'none';
+    document.getElementById('code-zh').style.display = lang === 'zh' ? '' : 'none';
   }
 
   btnLang.addEventListener('click', () => applyLang(lang === 'en' ? 'zh' : 'en'));
