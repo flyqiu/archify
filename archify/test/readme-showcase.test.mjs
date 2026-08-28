@@ -182,7 +182,7 @@ test('README stays scannable without deleting the visual proof set', () => {
 
   for (const filename of ['README.md', 'README_EN.md', 'README_ZH.md']) {
     const readme = fs.readFileSync(path.join(repoRoot, filename), 'utf8');
-    assert.ok(readme.split('\n').length <= 290, `${filename}: README grew beyond the scannable line budget`);
+    assert.ok(readme.split('\n').length <= 295, `${filename}: README grew beyond the scannable line budget`);
     for (const asset of commonAssets) {
       assert.ok(readme.includes(`docs/assets/${asset}`), `${filename}: visual proof ${asset} was removed`);
     }
@@ -192,9 +192,29 @@ test('README stays scannable without deleting the visual proof set', () => {
   const wordCount = english.trim().split(/\s+/).length;
   const intro = english.slice(0, english.indexOf('![License]'));
   const introBullets = intro.match(/^- \*\*/gm) || [];
-  assert.ok(wordCount <= 2070, `README.md is too verbose again (${wordCount} words)`);
+  assert.ok(wordCount <= 2085, `README.md is too verbose again (${wordCount} words)`);
   assert.ok(introBullets.length <= 8, `README.md has too many top-level capability bullets (${introBullets.length})`);
 
   const chinese = fs.readFileSync(path.join(repoRoot, 'README_ZH.md'), 'utf8');
   assert.ok(chinese.includes('docs/assets/claude-skills-settings.png'), 'README_ZH.md lost the Claude Skills setup image');
+});
+
+test('all README languages end with the self-hosted star history chart', () => {
+  const lightChart = 'https://raw.githubusercontent.com/tt-a1i/archify/star-history/assets/star-history.svg';
+  const darkChart = 'https://raw.githubusercontent.com/tt-a1i/archify/star-history/assets/star-history-dark.svg';
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'star-history.yml'), 'utf8');
+
+  for (const filename of ['README.md', 'README_EN.md', 'README_ZH.md']) {
+    const readme = fs.readFileSync(path.join(repoRoot, filename), 'utf8');
+    const sectionIndex = readme.lastIndexOf('## Star History');
+    const contributingIndex = Math.max(readme.indexOf('## Contributing'), readme.indexOf('## 参与贡献'));
+    assert.ok(sectionIndex > contributingIndex, `${filename}: Star History must follow Contributing`);
+    assert.ok(readme.includes(lightChart), `${filename}: missing light star history chart`);
+    assert.ok(readme.includes(darkChart), `${filename}: missing dark star history chart`);
+    assert.equal(readme.trimEnd().endsWith('</p>'), true, `${filename}: Star History must remain the final section`);
+  }
+
+  assert.match(workflow, /permissions:\n  contents: write/);
+  assert.match(workflow, /xpzouying\/star-history@[0-9a-f]{40}/);
+  assert.match(workflow, /branch: star-history/);
 });
