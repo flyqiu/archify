@@ -6437,7 +6437,45 @@
       function renderPageExport() {
         var svg = document.querySelector('.diagram-container svg');
         if (!svg) return Promise.reject(exportError('viewer.export.error.viewerState'));
+
+        // Pre-flight the canvas dimensions BEFORE rasterizing the SVG, using
+        // the authored viewBox aspect (serializeSvg preserves it). This makes
+        // the 2x→1x fallback and the over-cap fail-closed decision synchronous
+        // and cheap: an oversized diagram never pays for a huge SVG raster.
         var vb = svg.viewBox.baseVal;
+        var PAGE_WIDTH = 1600;
+        var EXPORT_PAGE_SCALE = 2;
+        var pad = 48;
+        var titleBlock = 96;
+        var diagramWidth = PAGE_WIDTH - pad * 2;
+        var diagramHeight = Math.round(diagramWidth * (vb.height / vb.width));
+        var cardHeaderHeight = 40;
+        var cardLineHeight = 26;
+        var cardPad = 24;
+        var cardGap = 20;
+        var cardCount = document.querySelectorAll('.cards .card').length;
+        var cardHeights = Array.prototype.map.call(document.querySelectorAll('.cards .card'), function (card) {
+          return cardHeaderHeight + card.querySelectorAll('li').length * cardLineHeight + cardPad * 2;
+        });
+        var cardsHeight = cardCount ? (Math.max.apply(null, cardHeights) + 8) : 0;
+        var canvasHeight = pad + titleBlock + diagramHeight + 24
+          + (cardCount ? cardsHeight + pad : 0);
+
+        var canvasWidth = PAGE_WIDTH * EXPORT_PAGE_SCALE;
+        var canvasHeightPx = canvasHeight * EXPORT_PAGE_SCALE;
+        if (canvasWidth * canvasHeightPx > MAX_CANVAS_PIXELS) {
+          EXPORT_PAGE_SCALE = 1;
+          canvasWidth = PAGE_WIDTH * EXPORT_PAGE_SCALE;
+          canvasHeightPx = canvasHeight * EXPORT_PAGE_SCALE;
+        }
+        if (canvasWidth * canvasHeightPx > MAX_CANVAS_PIXELS) {
+          return Promise.reject(exportError('viewer.export.error.tooLarge', {
+            label: viewerText('viewer.export.page'),
+            width: canvasWidth,
+            height: canvasHeightPx,
+          }));
+        }
+
         var sourceScale = Math.min(4, pickSafeScale(vb.width, vb.height));
         var data = serializeSvg(sourceScale);
         if (!data.canonicalStateClean) return Promise.reject(exportError('viewer.export.error.viewerState'));
@@ -6480,30 +6518,12 @@
               // Logical layout space is 1600 wide; render at EXPORT_PAGE_SCALE
               // (2x) so the download is a crisp 3200px-wide image. All draw
               // coordinates stay in logical pixels via ctx.setTransform.
-              var PAGE_WIDTH = 1600;
-              var EXPORT_PAGE_SCALE = 2;
-              var pad = 48;
-              var titleBlock = 96;
-              var diagramWidth = PAGE_WIDTH - pad * 2;
-              var diagramHeight = Math.round(diagramWidth * (data.height / data.width));
-              var cardHeaderHeight = 40;
-              var cardLineHeight = 26;
-              var cardPad = 24;
-              var cardGap = 20;
-              var cardsHeight = cards.length ? (Math.max.apply(null, cards.map(function (c) {
-                return cardHeaderHeight + c.items.length * cardLineHeight + cardPad * 2;
-              })) + 8) : 0;
-              var canvasHeight = pad + titleBlock + diagramHeight + 24
-                + (cards.length ? cardsHeight + pad : 0);
-
+              // The scale and canvas size were pre-flighted synchronously
+              // above (against MAX_CANVAS_PIXELS itself), so the onload
+              // handler only draws.
               var canvas = document.createElement('canvas');
-              canvas.width = PAGE_WIDTH * EXPORT_PAGE_SCALE;
-              canvas.height = canvasHeight * EXPORT_PAGE_SCALE;
-              if (canvas.width * canvas.height > MAX_CANVAS_PIXELS * 4) {
-                EXPORT_PAGE_SCALE = 1;
-                canvas.width = PAGE_WIDTH * EXPORT_PAGE_SCALE;
-                canvas.height = canvasHeight * EXPORT_PAGE_SCALE;
-              }
+              canvas.width = canvasWidth;
+              canvas.height = canvasHeightPx;
               var ctx = canvas2dOrThrow(canvas, viewerText('viewer.export.page'));
               ctx.setTransform(EXPORT_PAGE_SCALE, 0, 0, EXPORT_PAGE_SCALE, 0, 0);
 
@@ -6566,7 +6586,7 @@
 
               canvas.toBlob(function (blob) {
                 if (!blob) reject(exportError('viewer.export.error.toBlobNull', { label: viewerText('viewer.export.page') }));
-                else resolve(blob);
+                else resolve({ blob: blob, width: canvas.width, height: canvas.height, scale: EXPORT_PAGE_SCALE });
               }, 'image/png');
             } catch (error) {
               reject(error);
@@ -6997,9 +7017,9 @@
               toast(viewerText('viewer.export.downloadedShare'));
             })
           : format === 'page'
-          ? renderPageExport().then(function (blob) {
-              recordExportReceipt('page', blob, true, { width: 1600 });
-              download(blob, base + '-page.png');
+          ? renderPageExport().then(function (result) {
+              recordExportReceipt('page', result.blob, true, { width: result.width, height: result.height });
+              download(result.blob, base + '-page.png');
               toast(viewerText('viewer.export.downloadedPage'));
             })
           : format === 'svg'
