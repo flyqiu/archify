@@ -6494,6 +6494,34 @@
       // mirrors the reading view (header, diagram, cards) on one tall canvas
       // so the artifact reads like the delivered page, not the fixed 1200x630
       // share card.
+      // Word-wrap text into lines that fit maxWidth, hard-breaking overlong
+      // tokens by character. The page export must never silently truncate
+      // card content, so this is the only path card items take to the canvas.
+      function wrapCanvasText(ctx, text, maxWidth) {
+        var lines = [];
+        var words = String(text).split(/\s+/).filter(Boolean);
+        var current = '';
+        function push(line) { lines.push(line); }
+        function commit() { if (current) { push(current); current = ''; } }
+        words.forEach(function (word) {
+          while (word && ctx.measureText(word).width > maxWidth) {
+            var cut = 1;
+            while (cut < word.length && ctx.measureText(word.slice(0, cut + 1)).width <= maxWidth) cut += 1;
+            var piece = word.slice(0, cut);
+            var next = current ? current + ' ' + piece : piece;
+            if (current && ctx.measureText(next).width > maxWidth) { commit(); current = piece; }
+            else current = next;
+            word = word.slice(cut);
+          }
+          if (!word) return;
+          var next = current ? current + ' ' + word : word;
+          if (current && ctx.measureText(next).width > maxWidth) { commit(); current = word; }
+          else current = next;
+        });
+        commit();
+        return lines.length ? lines : [''];
+      }
+
       function renderPageExport() {
         var svg = document.querySelector('.diagram-container svg');
         if (!svg) return Promise.reject(exportError('viewer.export.error.viewerState'));
@@ -6560,6 +6588,9 @@
               var subtitle = subtitleNode ? subtitleNode.textContent : '';
 
               var cardNodes = Array.prototype.slice.call(document.querySelectorAll('.cards .card'));
+              var measureCanvas = document.createElement('canvas');
+              var measureCtx = measureCanvas.getContext('2d');
+              var PAGE_ITEM_FONT = "500 14px 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
               var cards = cardNodes.map(function (node) {
                 var dot = node.querySelector('.card-dot');
                 var dotClass = dot ? dot.className.replace('card-dot', '').trim() : '';
@@ -6575,12 +6606,48 @@
                 };
               });
 
+              // Word-wrap every card item so long content wraps instead of
+              // being truncated (complete-content contract), then let the
+              // wrapped line count drive the real canvas budget. The
+              // synchronous pre-flight above stays as an early lower-bound
+              // guard; this is the authoritative sizing pass.
+              var gap = cardGap;
+              var cardWidth = cards.length ? Math.floor((diagramWidth - gap * (cards.length - 1)) / cards.length) : 0;
+              var itemMaxWidth = Math.max(40, cardWidth - cardPad * 2);
+              measureCtx.font = PAGE_ITEM_FONT;
+              cards.forEach(function (card) {
+                card.itemLines = [];
+                card.items.forEach(function (item) {
+                  card.itemLines.push(wrapCanvasText(measureCtx, item, itemMaxWidth));
+                });
+                card.totalLines = card.itemLines.reduce(function (sum, lines) { return sum + lines.length; }, 0);
+              });
+              var wrappedCardsHeight = cards.length
+                ? (Math.max.apply(null, cards.map(function (card) {
+                    return cardHeaderHeight + card.totalLines * cardLineHeight + cardPad * 2;
+                  })) + 8)
+                : 0;
+              cardsHeight = wrappedCardsHeight;
+              canvasHeight = pad + titleBlock + diagramHeight + 24
+                + (cards.length ? cardsHeight + pad : 0);
+              canvasWidth = PAGE_WIDTH * EXPORT_PAGE_SCALE;
+              canvasHeightPx = canvasHeight * EXPORT_PAGE_SCALE;
+              if (canvasWidth * canvasHeightPx > MAX_CANVAS_PIXELS) {
+                EXPORT_PAGE_SCALE = 1;
+                canvasWidth = PAGE_WIDTH * EXPORT_PAGE_SCALE;
+                canvasHeightPx = canvasHeight * EXPORT_PAGE_SCALE;
+              }
+              if (canvasWidth * canvasHeightPx > MAX_CANVAS_PIXELS) {
+                throw exportError('viewer.export.error.tooLarge', {
+                  label: viewerText('viewer.export.page'),
+                  width: canvasWidth,
+                  height: canvasHeightPx,
+                });
+              }
+
               // Logical layout space is 1600 wide; render at EXPORT_PAGE_SCALE
               // (2x) so the download is a crisp 3200px-wide image. All draw
               // coordinates stay in logical pixels via ctx.setTransform.
-              // The scale and canvas size were pre-flighted synchronously
-              // above (against MAX_CANVAS_PIXELS itself), so the onload
-              // handler only draws.
               var canvas = document.createElement('canvas');
               canvas.width = canvasWidth;
               canvas.height = canvasHeightPx;
@@ -6635,11 +6702,13 @@
                   ctx.font = "700 16px 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
                   ctx.fillText(fitCanvasText(ctx, card.title, cardWidth - cardPad * 2 - 20, 16, 12, '700'), x + cardPad + 16, cy + 12);
                   cy += cardHeaderHeight;
-                  ctx.font = "500 14px 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+                  ctx.font = PAGE_ITEM_FONT;
                   ctx.fillStyle = muted;
-                  card.items.forEach(function (item) {
-                    ctx.fillText(fitCanvasText(ctx, item, cardWidth - cardPad * 2, 14, 10, '500'), x + cardPad, cy);
-                    cy += cardLineHeight;
+                  card.itemLines.forEach(function (lines) {
+                    lines.forEach(function (line) {
+                      ctx.fillText(line, x + cardPad, cy);
+                      cy += cardLineHeight;
+                    });
                   });
                 });
               }

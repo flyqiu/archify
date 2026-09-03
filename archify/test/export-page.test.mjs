@@ -241,6 +241,59 @@ test('full diagram page export works without cards and in the light theme', {
   }
 });
 
+test('long card items wrap onto multiple lines instead of being truncated', {
+  skip: chromePath ? false : 'Set ARCHIFY_CHROME to run the real browser regression.',
+}, async () => {
+  // A single schema-valid item longer than one line at the item font size.
+  const longItem = 'Retry only idempotent requests after a transient upstream failure. '
+    + 'Back off exponentially with jitter and surface a per-request retry budget so callers '
+    + 'can decide whether a bounded retry is safe for their operation.';
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-export-page-wrap-'));
+  const downloadDir = path.join(tmp, 'downloads');
+  fs.mkdirSync(downloadDir, { recursive: true });
+  const cards = () => [
+    { dot: 'cyan', title: 'Edge', items: [longItem] },
+    { dot: 'emerald', title: 'Backend', items: ['API serves data'] },
+  ];
+  const artifact = renderArtifact(tmp, 'wrap', baseArchitectureJson({ cards: cards() }));
+  // The same structure with a single-line item: the canvas must be shorter,
+  // proving wrapped lines participated in the height budget.
+  const baseline = renderArtifact(tmp, 'baseline', baseArchitectureJson({
+    cards: [
+      { dot: 'cyan', title: 'Edge', items: ['Short item'] },
+      { dot: 'emerald', title: 'Backend', items: ['API serves data'] },
+    ],
+  }));
+
+  const { ChromeVisualBrowser } = await import('../bin/visual-check.mjs');
+  const browser = new ChromeVisualBrowser(chromePath);
+  try {
+    const sessionId = await browser.sessionPromise;
+    const heights = {};
+    for (const [label, file] of [['wrapped', artifact], ['baseline', baseline]]) {
+      await browser.inspect({ artifactPath: file, width: 1600, height: 900 });
+      const downloaded = await exportPageViaMenu(browser, sessionId, downloadDir);
+      const png = fs.readFileSync(downloaded);
+      const dims = pngDimensions(png);
+      assert.equal(dims.width, 3200, `${label} export should render at 2x`);
+      heights[label] = dims.height;
+      fs.unlinkSync(downloaded); // keep the download dir clean for the next export
+    }
+    // Three wrapped lines add ~2 extra lines of card height over the baseline.
+    assert.ok(
+      heights.wrapped > heights.baseline,
+      `wrapped content should grow the canvas (wrapped=${heights.wrapped}, baseline=${heights.baseline})`,
+    );
+    assert.ok(
+      heights.wrapped - heights.baseline >= 4 * 26,
+      `wrapped canvas should gain at least two 2x line heights (diff=${heights.wrapped - heights.baseline})`,
+    );
+  } finally {
+    await browser.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // The packaged skill archive must carry the same export implementation as
 // the working tree, otherwise installed copies silently miss the feature.
 function readZipEntry(zipPath, entryName) {
